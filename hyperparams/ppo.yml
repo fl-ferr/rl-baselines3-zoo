@@ -516,6 +516,52 @@ Humanoid-v3:
                     activation_fn=nn.ReLU,
                     net_arch=dict(pi=[256, 256], vf=[256, 256])
                   )"
+Stickbot:
+  batch_size: 128
+  ent_coef: 0.01
+  gae_lambda: 0.95
+  gamma: 0.95
+  learning_rate: !!float 1e-5
+  max_grad_norm: 0.3
+  n_epochs: 5
+  n_steps: 5120
+  normalize_advantage: True
+  policy: "MlpPolicy"
+  policy_kwargs: "dict(
+                    activation_fn=nn.ReLU,
+                    net_arch=dict(pi=[2048, 1024, 512, 128], vf=[2048, 512, 128]),
+                    ortho_init=True,
+                  )"
+  target_kl: 0.1
+  n_timesteps: !!float 512_000
+  use_sde: False 
+
+ErgoCub:
+  batch_size: 512
+  ent_coef: 1.979097362562618e-08
+  n_envs: 45
+  clip_range: 0.1
+  gae_lambda: 0.8
+  gamma: 0.9
+  vf_coef: 0.4329584383400617
+  learning_rate: 0.0012097319821909537
+  max_grad_norm: 2
+  n_epochs: 20
+  sde_sample_freq: 4
+  n_steps: 128
+  normalize_advantage: True
+  policy: "MlpPolicy"
+  policy_kwargs: "dict(
+                    activation_fn=nn.LeakyReLU,
+                    net_arch=dict(pi=[1024, 512, 128], vf=[256, 256]),
+                    log_std_init=-1.4765787405272466,
+                    ortho_init=True,
+                  )" 
+  target_kl: 0.03
+  callback: rl_zoo3.callbacks.RewardComponentsCallback
+  n_timesteps: !!float 1_024_000
+  use_sde: True 
+
 
 InvertedDoublePendulum-v2:
   normalize: true

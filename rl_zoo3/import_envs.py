@@ -55,6 +55,23 @@ try:
 except ImportError:
     minigrid = None
 
+try:
+    from envs import humanoid
+except ImportError:
+    humanoid = None
+
+try:
+    from envs import ergocub
+except ImportError:
+    ergocub = None
+
+
+if humanoid is not None:
+    register(id=f"Stickbot", entry_point="envs.humanoid:Stickbot")
+
+if humanoid is not None:
+    register(id=f"ErgoCub", entry_point="envs.ergocub:ErgoCub")
+
 
 # Register no vel envs
 def create_no_vel_env(env_id: str):

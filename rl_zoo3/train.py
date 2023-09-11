@@ -210,6 +210,7 @@ def train() -> None:
             config=vars(args),
             sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
             monitor_gym=True,  # auto-upload the videos of agents playing the game
+            resume=args.trained_agent.endswith(".zip") and os.path.isfile(args.trained_agent),
             save_code=True,  # optional
         )
         args.tensorboard_log = f"runs/{run_name}"

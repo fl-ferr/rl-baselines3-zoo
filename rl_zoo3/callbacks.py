@@ -236,3 +236,16 @@ class RawStatisticsCallback(BaseCallback):
                 self._tensorboard_writer.write(logger_dict, exclude_dict, self._timesteps_counter)
 
         return True
+
+
+class RewardComponentsCallback(BaseCallback):
+    """
+    Add reward component to SummaryWriter for a VecEnv
+    """
+
+    def __init__(self, verbose=0):
+        super().__init__(verbose)
+
+    def _on_step(self) -> bool:
+        self.logger.record("reward_components", self.locals["infos"][0]["reward_components"])
+        return True

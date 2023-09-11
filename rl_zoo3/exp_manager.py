@@ -27,11 +27,24 @@ from sb3_contrib.common.vec_env import AsyncEval
 # For using HER with GoalEnv
 from stable_baselines3 import HerReplayBuffer
 from stable_baselines3.common.base_class import BaseAlgorithm
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback, ProgressBarCallback
+from stable_baselines3.common.callbacks import (
+    BaseCallback,
+    CheckpointCallback,
+    EvalCallback,
+    ProgressBarCallback,
+)
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
-from stable_baselines3.common.preprocessing import is_image_space, is_image_space_channels_first
-from stable_baselines3.common.sb2_compat.rmsprop_tf_like import RMSpropTFLike  # noqa: F401
+from stable_baselines3.common.noise import (
+    NormalActionNoise,
+    OrnsteinUhlenbeckActionNoise,
+)
+from stable_baselines3.common.preprocessing import (
+    is_image_space,
+    is_image_space_channels_first,
+)
+from stable_baselines3.common.sb2_compat.rmsprop_tf_like import (
+    RMSpropTFLike,
+)  # noqa: F401
 from stable_baselines3.common.utils import constant_fn
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
@@ -50,7 +63,15 @@ from torch import nn as nn
 import rl_zoo3.import_envs  # noqa: F401 pytype: disable=import-error
 from rl_zoo3.callbacks import SaveVecNormalizeCallback, TrialEvalCallback
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
-from rl_zoo3.utils import ALGOS, get_callback_list, get_class_by_name, get_latest_run_id, get_wrapper_class, linear_schedule
+from rl_zoo3.utils import (
+    ALGOS,
+    get_callback_list,
+    get_class_by_name,
+    get_latest_run_id,
+    get_wrapper_class,
+    linear_schedule,
+)
+from rl_zoo3.envs.training_callbacks import BatchNormExtractor
 
 
 class ExperimentManager:
@@ -173,7 +194,8 @@ class ExperimentManager:
 
         self.log_path = f"{log_folder}/{self.algo}/"
         self.save_path = os.path.join(
-            self.log_path, f"{self.env_name}_{get_latest_run_id(self.log_path, self.env_name) + 1}{uuid_str}"
+            self.log_path,
+            f"{self.env_name}_{get_latest_run_id(self.log_path, self.env_name) + 1}{uuid_str}",
         )
         self.params_path = f"{self.save_path}/{self.env_name}"
 
@@ -185,7 +207,12 @@ class ExperimentManager:
         :return: the initialized RL model
         """
         hyperparams, saved_hyperparams = self.read_hyperparameters()
-        hyperparams, self.env_wrapper, self.callbacks, self.vec_env_wrapper = self._preprocess_hyperparams(hyperparams)
+        (
+            hyperparams,
+            self.env_wrapper,
+            self.callbacks,
+            self.vec_env_wrapper,
+        ) = self._preprocess_hyperparams(hyperparams)
 
         self.create_log_folder()
         self.create_callbacks()
@@ -229,11 +256,12 @@ class ExperimentManager:
         # Special case for ARS
         if self.algo == "ars" and self.n_envs > 1:
             kwargs["async_eval"] = AsyncEval(
-                [lambda: self.create_envs(n_envs=1, no_log=True) for _ in range(self.n_envs)], model.policy
+                [lambda: self.create_envs(n_envs=1, no_log=True) for _ in range(self.n_envs)],
+                model.policy,
             )
 
         try:
-            model.learn(self.n_timesteps, **kwargs)
+            model.learn(self.n_timesteps, reset_num_timesteps=not self.continue_training, **kwargs)
         except KeyboardInterrupt:
             # this allows to save the model when interrupting training
             pass
@@ -316,7 +344,7 @@ class ExperimentManager:
         # Always print used hyperparameters
         print("Default hyperparameters for environment (ones being tuned will be overridden):")
         pprint(saved_hyperparams)
-
+        pprint(f"HYPERPARAMS:{hyperparams}")
         return hyperparams, saved_hyperparams
 
     @staticmethod
@@ -397,7 +425,11 @@ class ExperimentManager:
 
         # Pre-process policy/buffer keyword arguments
         # Convert to python object if needed
-        for kwargs_key in {"policy_kwargs", "replay_buffer_class", "replay_buffer_kwargs"}:
+        for kwargs_key in {
+            "policy_kwargs",
+            "replay_buffer_class",
+            "replay_buffer_kwargs",
+        }:
             if kwargs_key in hyperparams.keys() and isinstance(hyperparams[kwargs_key], str):
                 hyperparams[kwargs_key] = eval(hyperparams[kwargs_key])
 
@@ -441,7 +473,10 @@ class ExperimentManager:
         return hyperparams, env_wrapper, callbacks, vec_env_wrapper
 
     def _preprocess_action_noise(
-        self, hyperparams: Dict[str, Any], saved_hyperparams: Dict[str, Any], env: VecEnv
+        self,
+        hyperparams: Dict[str, Any],
+        saved_hyperparams: Dict[str, Any],
+        env: VecEnv,
     ) -> Dict[str, Any]:
         # Parse noise string
         # Note: only off-policy algorithms are supported
@@ -700,7 +735,11 @@ class ExperimentManager:
         if sampler_method == "random":
             sampler = RandomSampler(seed=self.seed)
         elif sampler_method == "tpe":
-            sampler = TPESampler(n_startup_trials=self.n_startup_trials, seed=self.seed, multivariate=True)
+            sampler = TPESampler(
+                n_startup_trials=self.n_startup_trials,
+                seed=self.seed,
+                multivariate=True,
+            )
         elif sampler_method == "skopt":
             from optuna.integration.skopt import SkoptSampler
 
@@ -716,7 +755,10 @@ class ExperimentManager:
         if pruner_method == "halving":
             pruner = SuccessiveHalvingPruner(min_resource=1, reduction_factor=4, min_early_stopping_rate=0)
         elif pruner_method == "median":
-            pruner = MedianPruner(n_startup_trials=self.n_startup_trials, n_warmup_steps=self.n_evaluations // 3)
+            pruner = MedianPruner(
+                n_startup_trials=self.n_startup_trials,
+                n_warmup_steps=self.n_evaluations // 3,
+            )
         elif pruner_method == "none":
             # Do not prune
             pruner = NopPruner()
@@ -783,7 +825,8 @@ class ExperimentManager:
         # Special case for ARS
         if self.algo == "ars" and self.n_envs > 1:
             learn_kwargs["async_eval"] = AsyncEval(
-                [lambda: self.create_envs(n_envs=1, no_log=True) for _ in range(self.n_envs)], model.policy
+                [lambda: self.create_envs(n_envs=1, no_log=True) for _ in range(self.n_envs)],
+                model.policy,
             )
 
         try:
