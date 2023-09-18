@@ -247,5 +247,11 @@ class RewardComponentsCallback(BaseCallback):
         super().__init__(verbose)
 
     def _on_step(self) -> bool:
-        self.logger.record("reward_components", self.locals["infos"][0]["reward_components"])
+        if "reward_components" in self.locals["infos"][0]:
+            assert self.logger is not None
+
+            for info in self.locals["infos"]:
+                for key, value in info["reward_components"].items():
+                    self.logger.record(f"reward_components/{key}", value)
+
         return True
