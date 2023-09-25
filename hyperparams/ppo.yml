@@ -537,29 +537,29 @@ Stickbot:
   use_sde: False 
 
 ErgoCub:
-  batch_size: 512
-  ent_coef: 1.979097362562618e-08
-  n_envs: 45
+  batch_size: 128
+  ent_coef: 0.0018156842230363426
+  n_envs: 46
   clip_range: 0.1
-  gae_lambda: 0.8
-  gamma: 0.9
-  vf_coef: 0.4329584383400617
-  learning_rate: 0.0012097319821909537
-  max_grad_norm: 2
-  n_epochs: 20
-  sde_sample_freq: 4
-  n_steps: 128
+  gae_lambda: 0.9
+  gamma: 0.999
+  vf_coef: 0.662089808953894
+  learning_rate: !!float 1e-5
+  max_grad_norm: 0.8
+  n_epochs: 5
+  sde_sample_freq: -1
+  n_steps: 32
   normalize_advantage: True
   policy: "MlpPolicy"
   policy_kwargs: "dict(
-                    activation_fn=nn.LeakyReLU,
-                    net_arch=dict(pi=[1024, 512, 128], vf=[256, 256]),
-                    log_std_init=-1.4765787405272466,
+                    activation_fn=nn.ReLU,
+                    net_arch=dict(pi=[256, 256], vf=[256, 256]),
+                    log_std_init=-1.3444746885504595,
                     ortho_init=True,
                   )" 
   target_kl: 0.03
-  callback: rl_zoo3.callbacks.RewardComponentsCallback
-  n_timesteps: !!float 1_024_000
+  # callback: rl_zoo3.callbacks.RewardComponentsCallback
+  n_timesteps: !!float 5e6
   use_sde: True 
 
 
