@@ -204,9 +204,10 @@ class ErgoCub(gym.Env):
             step_size=self._step_size,
             steps_per_run=steps_per_run,
             velocity_representation=VelRepr.Body,
-            integrator_type=IntegratorType.RungeKutta4,
+            integrator_type=IntegratorType.EulerSemiImplicit,
             simulator_data=SimulatorData(
                 contact_parameters=SoftContactsParams(K=5e6, D=3.5e4, mu=0.8),
+                # contact_parameters=SoftContactsParams(K=5e6, D=3.5e4, mu=0.8),
             ),
         ).mutable(validate=False)
 
@@ -237,13 +238,14 @@ class ErgoCub(gym.Env):
                 "l_ankle_roll",
                 "torso_roll",
                 "torso_yaw",
+                "torso_pitch",
             ]
         )
-        self.observation_space = Box(low=-np.inf, high=np.inf, shape=(82,), dtype=np.float32)
-        self.action_space = Box(low=-1.0, high=1.0, shape=(22,), dtype=np.float64)
+        self.observation_space = Box(low=-np.inf, high=np.inf, shape=(85,), dtype=np.float32)
+        self.action_space = Box(low=-1.0, high=1.0, shape=(23,), dtype=np.float64)
 
         self.forward_reward_weight = forward_reward_weight
-        self.healthy_reward = healthy_reward
+        self.healthy_reward_weight = healthy_reward_weight
         self.ctrl_cost_weight = ctrl_cost_weight
         self.render_mode = render_mode
         self._terminate_when_unhealthy = terminate_when_unhealthy
@@ -322,7 +324,7 @@ class ErgoCub(gym.Env):
             else np.zeros_like(model.joint_names())
         )
 
-        action = np.clip(action, -100.0, 100.0)
+        action = np.clip(action, -30.0, 30.0)
 
         self.simulator, step_data = self.env_step(
             sim=self.simulator,
@@ -340,29 +342,32 @@ class ErgoCub(gym.Env):
 
         terminated = self.terminated
 
+        if terminated:
+            print("Terminated")
+
         done = False
 
         info = (
             {
-                "reward_components": reward_component_value
-                for reward_component, reward_component_value in zip(
-                    [
-                        "forward_reward",
-                        # "control_penalty",
-                        # "contact_cost",
-                        "healthy_reward",
-                        "balancing_reward",
-                        "regularizer_reward",
-                    ],
-                    [
-                        self.forward_reward,
-                        # self.control_penalty,
-                        # self.contact_cost,
-                        self.healthy_reward,
-                        self.balancing_reward,
-                        self.regularizer_reward,
-                    ],
-                )
+                # "reward_components": reward_component_value
+                # for reward_component, reward_component_value in zip(
+                #     [
+                #         "forward_reward",
+                #         # "control_penalty",
+                #         # "contact_cost",
+                #         "healthy_reward",
+                #         "balancing_reward",
+                #         "regularizer_reward",
+                #     ],
+                #     [
+                #         self.forward_reward,
+                #         # self.control_penalty,
+                #         # self.contact_cost,
+                #         self.healthy_reward,
+                #         self.balancing_reward,
+                #         self.regularizer_reward,
+                #     ],
+                # )
             }
             if not self._has_NaNs
             else {"has_NaNs": True}
@@ -402,8 +407,8 @@ class ErgoCub(gym.Env):
 
         # Reset the base position of the new model to match the saved starting position
         model.reset_base_position(
-            position=self.starting_base_position + jnp.array([0.0, 0.0, 0.007]) * jax.random.uniform(key, (3,))
-        )
+            position=self.starting_base_position + jnp.array([0.0, 0.0, 0.008])
+        )  # * jax.random.uniform(key, (3,))
 
         # Reset base and joints
         model.reset_base_orientation(orientation=jnp.array([1.0, 0.0, 0.0, 0.0]))
@@ -417,6 +422,11 @@ class ErgoCub(gym.Env):
         self.target_configuration = model.joint_positions()
 
         model.set_mutability(False)
+
+        # ! Imitation Learning
+        # model = self.simulator.get_model(model_name="ergoCub")
+        # sequence = mim
+        # self.mimic_idx, _ = jnp.argmin(sequence - model.joint_position())
 
         if self.render_mode == "human":
             self.render()
@@ -437,7 +447,17 @@ class ErgoCub(gym.Env):
         Returns:
             None
         """
-        # self.world.close()
+        # import matplotlib.pyplot as plt
+
+        # integrator = "RungeKutta4" if self.simulator.integrator_type == 1 else "EulerSemiImplicit"
+
+        # x = np.arange(len(self.com))
+        # plt.plot(x, self.com)
+        # plt.xlabel("Step")
+        # plt.ylabel("CoM Height")
+        # plt.title(f"Integrator: {integrator}, Step Size: {self._step_size}")
+        # plt.savefig(f"CoM_{self.simulator.integrator_type}_{self._step_size}.png")
+        # plt.close()
         pass
 
     def render(self) -> None:
@@ -477,6 +497,10 @@ class ErgoCub(gym.Env):
             )
         except:
             pass
+
+    # def _get_mimic_reward(self, action: np.array, step_data: StepData) -> float:
+    #     mimic_reward = jnp.linalg.norm(model.joint_position() - self.mimic_sequence[self.mimic_idx])
+    #     return mimic_reward
 
     def _get_reward(self, action: np.array, step_data: StepData) -> float:
         """
@@ -543,7 +567,7 @@ class ErgoCub(gym.Env):
         #     self.healthy_reward * self.healthy_steps if self.is_healthy else -self.healthy_reward / 10 * self.healthy_steps
         # )
 
-        healthy_reward = self.healthy_reward * self.is_healthy
+        healthy_reward = self.healthy_reward_weight * self.is_healthy
 
         reg = 0.1
         regularizer_reward = (
@@ -688,13 +712,3 @@ class ErgoCub(gym.Env):
         if found:
             logging.warning("NaNs found in observation!")
         return found
-
-
-if __name__ == "__main__":
-    env = ErgoCub()
-    env.reset()
-    env.step(np.zeros(22))
-    env.step(np.zeros(22))
-
-from rod import Sdf
-from rod.urdf.exporter import UrdfExporter
