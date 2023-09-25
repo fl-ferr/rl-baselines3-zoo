@@ -18,6 +18,7 @@ from jaxsim.physics.algos.soft_contacts import SoftContactsParams
 from jaxsim.simulation import simulator_callbacks
 from jaxsim.simulation.simulator import JaxSim, SimulatorData, StepData
 from meshcat_viz.world import MeshcatWorld
+from resolve_robotics_uri_py import resolve_robotics_uri
 
 warnings.filterwarnings("ignore")
 
@@ -181,30 +182,20 @@ class ErgoCub(gym.Env):
     def __init__(
         self,
         forward_reward_weight=2.0,
-        healthy_reward=3.0,
+        healthy_reward_weight=2.0,
         ctrl_cost_weight=0.1,
         contact_cost_weight=5e-7,
         _contact_cost_range: Tuple[float, float] = (-np.inf, 10.0),
-        render_mode=None,  # "human",
+        render_mode="none",  # "human",
         terminate_when_unhealthy=True,
         healthy_z_range: Union[float, float] = [0.4, 4.0],
     ):
         super(ErgoCub, self).__init__()
-        self._step_size = 0.000_5
+        self._step_size = 0.0005
         steps_per_run = 1
 
         # Load model from urdf
-        self.model_urdf_path = (
-            Path.home()
-            / "element_rl-for-codesign"
-            / "assets"
-            / "model"
-            / "ErgoCub"
-            / "ergoCub"
-            / "robots"
-            / "ergoCubGazeboV1_minContacts"
-            / "model.urdf"
-        )
+        self.model_urdf_path = resolve_robotics_uri("package://ergoCub/robots/ergoCubGazeboV1_minContacts/model.urdf")
 
         assert self.model_urdf_path.exists()
 
