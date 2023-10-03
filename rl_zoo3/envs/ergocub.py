@@ -184,6 +184,7 @@ class ErgoCub(gym.Env):
         forward_reward_weight=2.0,
         healthy_reward_weight=2.0,
         ctrl_cost_weight=0.1,
+        prior_reward_weight=5.0,
         render_mode="none",
         terminate_when_unhealthy=True,
         healthy_z_range: Union[float, float] = [0.4, 4.0],
@@ -243,6 +244,7 @@ class ErgoCub(gym.Env):
         self.forward_reward_weight = forward_reward_weight
         self.healthy_reward_weight = healthy_reward_weight
         self.ctrl_cost_weight = ctrl_cost_weight
+        self.prior_reward_weight = prior_reward_weight
         self.render_mode = render_mode
         self._terminate_when_unhealthy = terminate_when_unhealthy
         self._healthy_z_range = healthy_z_range
@@ -468,13 +470,13 @@ class ErgoCub(gym.Env):
 
         # control_penalty = self.ctrl_cost_weight * np.square(action / 50.0).sum()
 
-        balancing_reward = self._get_balancing_reward(model)
+        # balancing_reward = self._get_balancing_reward(model)
 
         healthy_reward = self.healthy_reward_weight * self.is_healthy
 
-        prior_reward = self._get_prior_reward(model)
+        prior_reward = self.prior_reward_weight * self._get_prior_reward(model)
 
-        return float(prior_reward + balancing_reward + healthy_reward) if not self._has_NaNs else -10.0
+        return float(prior_reward + healthy_reward) if not self._has_NaNs else -10.0
 
     def _get_balancing_reward(self, model: Model) -> float:
         gravity_projection = model.base_orientation(dcm=True).T @ (
@@ -484,7 +486,7 @@ class ErgoCub(gym.Env):
         return 1.0 * np.linalg.norm(gravity_projection - np.array([0.0, 0.0, -1.0]))
 
     def _get_prior_reward(self, model: Model) -> float:
-        return 5.0 * np.exp(
+        return np.exp(
             -(
                 np.linalg.norm(model.joint_positions() - self._get_prior["joint_positions"])
                 + np.linalg.norm(model.base_orientation() - self._get_prior["base_orientation"])
