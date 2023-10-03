@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore")
 
 metadata = {"render_modes": [None, "human"]}
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["IGN_GAZEBO_RESOURCE_PATH"] = "/conda/share/"
 
 
@@ -184,18 +184,16 @@ class ErgoCub(gym.Env):
         forward_reward_weight=2.0,
         healthy_reward_weight=2.0,
         ctrl_cost_weight=0.1,
-        render_mode="human",
+        render_mode="none",
         terminate_when_unhealthy=True,
         healthy_z_range: Union[float, float] = [0.4, 4.0],
     ):
         super(ErgoCub, self).__init__()
-        self._step_size = 0.0005
+        self._step_size = 0.000_5
         steps_per_run = 1
 
         # Load model from urdf
-        self.model_urdf_path = resolve_robotics_uri(
-            "package://ergoCub/robots/ergoCubGazeboV1_minContacts/model.urdf"
-        )
+        self.model_urdf_path = resolve_robotics_uri("package://ergoCub/robots/ergoCubGazeboV1_minContacts/model.urdf")
         assert self.model_urdf_path.exists()
 
         # Create the JAXsim simulator
@@ -210,9 +208,7 @@ class ErgoCub(gym.Env):
         ).mutable(validate=False)
 
         # Insert model into the simulator
-        model = self.simulator.insert_model_from_description(
-            model_description=self.model_urdf_path
-        ).mutable(validate=True)
+        model = self.simulator.insert_model_from_description(model_description=self.model_urdf_path).mutable(validate=True)
 
         model.reduce(
             considered_joints=[
@@ -241,9 +237,7 @@ class ErgoCub(gym.Env):
                 "torso_pitch",
             ]
         )
-        self.observation_space = Box(
-            low=-np.inf, high=np.inf, shape=(85,), dtype=np.float32
-        )
+        self.observation_space = Box(low=-np.inf, high=np.inf, shape=(56,), dtype=np.float32)
         self.action_space = Box(low=-1.0, high=1.0, shape=(23,), dtype=np.float64)
 
         self.forward_reward_weight = forward_reward_weight
@@ -252,20 +246,18 @@ class ErgoCub(gym.Env):
         self.render_mode = render_mode
         self._terminate_when_unhealthy = terminate_when_unhealthy
         self._healthy_z_range = healthy_z_range
-        self._integration_time = 0.01
+        self._integration_time = 1 / 30
         self.start_position_found = False
         self.step_data = []
+        self.kp = 324.0
+        self.kd = np.sqrt(self.kp) / 22.0
 
-        def env_step(
-            sim: jaxsim.JaxSim, sim_data: SimulatorData, action: np.ndarray
-        ) -> Union[jaxsim.JaxSim, StepData]:
+        def env_step(sim: jaxsim.JaxSim, sim_data: SimulatorData, action: np.ndarray) -> Union[jaxsim.JaxSim, StepData]:
             """"""
 
             @jdc.pytree_dataclass
             class PostStepLogger(simulator_callbacks.PostStepCallback):
-                def post_step(
-                    self, sim: JaxSim, step_data: Dict[str, StepData]
-                ) -> Tuple[JaxSim, jtp.PyTree]:
+                def post_step(self, sim: JaxSim, step_data: Dict[str, StepData]) -> Tuple[JaxSim, jtp.PyTree]:
                     return sim, step_data
 
             with sim.editable(validate=True) as sim_rw:
@@ -276,9 +268,7 @@ class ErgoCub(gym.Env):
 
                 # Apply forces to model
                 model.zero_input()
-                model.set_joint_generalized_force_targets(
-                    forces=jnp.atleast_1d(action), joint_names=model.joint_names()
-                )
+                model.set_joint_generalized_force_targets(forces=jnp.atleast_1d(action), joint_names=model.joint_names())
 
                 cb_logger = PostStepLogger()
 
@@ -291,9 +281,12 @@ class ErgoCub(gym.Env):
                 return sim_rw, step_data
 
         self.env_step = jax.jit(env_step)
-        self.contact_force = lambda foot, step_data, model: step_data["ergoCub"].aux[
-            "t0"
-        ]["contact_forces_links"][0, model.link_names().index(f"{foot}_ankle_2"), :3]
+        self.contact_force = lambda foot, step_data, model: step_data["ergoCub"].aux["t0"]["contact_forces_links"][
+            0, model.link_names().index(f"{foot}_ankle_2"), :3
+        ]
+        self._pd_controller = (
+            lambda action, model: self.kp * (action - model.joint_positions()) - self.kd * model.joint_velocities()
+        )
 
     def step(self, action: np.ndarray) -> Union[np.array, np.array, bool, bool, Dict]:
         """
@@ -309,18 +302,18 @@ class ErgoCub(gym.Env):
             done (bool): A flag indicating whether the episode is done after this step.
             info (Dict): Additional information about the step.
         """
-        kp = 324.0
-        kd = np.sqrt(kp) / 22.0
 
         model = self.simulator.get_model(model_name="ergoCub").mutable(validate=True)
 
         action = (
-            kp * (action - model.joint_positions()) - kd * model.joint_velocities()
+            np.clip(
+                (self._pd_controller(action, model)),
+                -70.0,
+                70.0,
+            )
             if not self._has_NaNs
             else np.zeros_like(model.joint_names())
         )
-
-        action = np.clip(action, -50.0, 50.0)
 
         self.simulator, step_data = self.env_step(
             sim=self.simulator,
@@ -330,23 +323,22 @@ class ErgoCub(gym.Env):
 
         reward = self._get_reward(action=action, step_data=step_data)
 
-        self.step_data = step_data
+        observation = self._get_observation()
+
+        if not self._has_NaNs:
+            self.step_data = step_data
+
+            self.observation = observation
+
+            terminated = self.terminated
+
+            info = {}
+        else:
+            info = {"has_NaNs": True}
 
         self.global_step += 1
 
-        observation = self._get_observation()
-
-        self.observation = observation if not self._has_NaNs else self.observation
-
-        terminated = self.terminated
-
-        if terminated:
-            print("Terminated")
-            self.close()
-
         done = False
-
-        info = {} if not self._has_NaNs else {"has_NaNs": True}
 
         if self.render_mode == "human":
             self.render()
@@ -377,21 +369,15 @@ class ErgoCub(gym.Env):
 
         # Manually found starting position
         self.static_deflection = jnp.array([0.0, 0.0, 0.75356])
+        self.static_deflection = self._find_start_position()
 
         # Reset the base position of the new model to match the saved starting position
         model.reset_base_position(position=self.static_deflection)
-
-        # Reset base and joints
         model.reset_base_orientation(orientation=jnp.array([1.0, 0.0, 0.0, 0.0]))
         model.reset_base_velocity(base_velocity=jax.random.uniform(key, (6,)) * 0.000_5)
 
-        model.reset_joint_positions(
-            positions=jax.random.uniform(key, (model.dofs(),)) * 0.000_5
-        )
-
-        model.reset_joint_velocities(
-            velocities=jax.random.uniform(key, (model.dofs(),)) * 0.000_5
-        )
+        model.reset_joint_positions(positions=jax.random.uniform(key, (model.dofs(),)) * 0.000_5)
+        model.reset_joint_velocities(velocities=jax.random.uniform(key, (model.dofs(),)) * 0.000_5)
 
         self.global_step = 0
 
@@ -446,9 +432,7 @@ class ErgoCub(gym.Env):
                 model_name="ergoCub",
             )
 
-        model = self.simulator.get_model(model_name="ergoCub").mutable(
-            mutable=False, validate=True
-        )
+        model = self.simulator.get_model(model_name="ergoCub").mutable(mutable=False, validate=True)
 
         try:
             # Update the model
@@ -482,43 +466,30 @@ class ErgoCub(gym.Env):
 
         model = self.simulator.get_model(model_name="ergoCub").mutable(validate=True)
 
-        control_penalty = self.ctrl_cost_weight * np.square(action / 50.0).sum()
+        # control_penalty = self.ctrl_cost_weight * np.square(action / 50.0).sum()
 
+        balancing_reward = self._get_balancing_reward(model)
+
+        healthy_reward = self.healthy_reward_weight * self.is_healthy
+
+        prior_reward = self._get_prior_reward(model)
+
+        return float(prior_reward + balancing_reward + healthy_reward) if not self._has_NaNs else -10.0
+
+    def _get_balancing_reward(self, model: Model) -> float:
         gravity_projection = model.base_orientation(dcm=True).T @ (
             self.simulator.gravity() / np.linalg.norm(self.simulator.gravity())
         )
 
-        delta_gravity_angle = (
-            gravity_projection
-            @ np.array([0.0, 0.0, -1.0])
-            / (
-                np.linalg.norm(gravity_projection)
-                * np.linalg.norm(np.array([0.0, 0.0, -1.0]))
-            )
-        )
+        return 1.0 * np.linalg.norm(gravity_projection - np.array([0.0, 0.0, -1.0]))
 
-        balancing_reward = 1.0 * delta_gravity_angle  # ! -> 1.0
-
-        healthy_reward = self.healthy_reward_weight * self.is_healthy
-
-        prior_reward = 5 * np.exp(
+    def _get_prior_reward(self, model: Model) -> float:
+        return 5.0 * np.exp(
             -(
-                np.linalg.norm(
-                    model.joint_positions() - self._get_prior["joint_positions"]
-                )
-                + np.linalg.norm(
-                    model.base_orientation() - self._get_prior["base_orientation"]
-                )
-                + np.linalg.norm(
-                    model.base_position() - self._get_prior["base_position"]
-                )
+                np.linalg.norm(model.joint_positions() - self._get_prior["joint_positions"])
+                + np.linalg.norm(model.base_orientation() - self._get_prior["base_orientation"])
+                + np.linalg.norm(model.base_position() - self._get_prior["base_position"])
             ).sum()
-        )
-
-        return (
-            float(prior_reward + balancing_reward + healthy_reward)
-            if not self._has_NaNs
-            else -10.0
         )
 
     def _get_observation(self, reset: bool = False) -> np.array:
@@ -533,14 +504,13 @@ class ErgoCub(gym.Env):
             observation (np.array): The current observation/state of the environment as a NumPy array.
         """
         model = self.simulator.get_model(model_name="ergoCub").mutable(validate=True)
-        base_height = np.atleast_1d(model.base_position()[2])
+        # base_height = np.atleast_1d(model.base_position()[2])
+        base_position = np.array(model.base_position())
         base_orientation = np.array(model.base_orientation())
-        w_x_velocity = (
-            model.base_position()[0, None] - self.x
-        ) / self._integration_time
-        base_yz_velocity = model.base_velocity()[1:]
+        # w_x_velocity = (model.base_position()[0, None] - self.x) / self._integration_time
+        # base_yz_velocity = model.base_velocity()[1:]
         position = model.joint_positions()
-        velocity = model.joint_velocities()
+        # velocity = model.joint_velocities()
         gravity_projection = model.base_orientation(dcm=True).T @ (
             self.simulator.gravity() / jnp.linalg.norm(self.simulator.gravity())
         )
@@ -549,27 +519,22 @@ class ErgoCub(gym.Env):
 
         self.x = model.base_position()[0]
 
-        contact_forces = np.concatenate(
-            [
-                self.contact_force(foot, self.step_data, model)
-                if not reset
-                else [0, 0, 0]
-                for foot in ("l", "r")
-            ]
-        )
+        # contact_forces = np.concatenate(
+        #     [self.contact_force(foot, self.step_data, model) if not reset else [0, 0, 0] for foot in ("l", "r")]
+        # )
 
         return np.concatenate(
             (
-                base_height,
-                w_x_velocity,
-                base_yz_velocity,
+                base_position,
+                base_orientation,
+                # w_x_velocity,
                 position,
-                velocity,
+                # velocity,
                 gravity_projection,
                 actuator_forces,
-                contact_forces,
+                # contact_forces,
             )
-        )
+        ).astype(np.float32)
 
     def _find_start_position(self):
         """
@@ -588,17 +553,15 @@ class ErgoCub(gym.Env):
         mdlLoader.loadModelFromFile(str(self.model_urdf_path))
         dynComp.loadRobotModel(mdlLoader.model())
 
-        root_H_sole = (
-            dynComp.getRelativeTransform("root_link", "l_sole").getPosition().toNumPy()
-        )
+        root_H_sole = dynComp.getRelativeTransform("root_link", "l_sole").getPosition().toNumPy()
 
         start_position = jnp.array([0.0, 0.0, -1.0 * root_H_sole[2]])
         self.start_position_found = True
 
         return start_position
 
-    def _toggle_render(self):
-        self.render_mode = "human" if self.render_mode == None else None
+    #     def _toggle_render(self):
+    # self.render_mode = "human" if self.render_mode == None else None
 
     @property
     def terminated(self) -> bool:
@@ -621,30 +584,12 @@ class ErgoCub(gym.Env):
     @property
     def _get_prior(self):
         # Load motions from .npy file
-        amp_motions = np.load(
-            Path(__file__).parent / "icub_walk.npy", allow_pickle=True
-        )
+        amp_motions = np.load(Path(__file__).parent / "ergocub_motions.npy", allow_pickle=True)
 
         model = self.simulator.get_model("ergoCub").mutable(validate=True)
 
         # Filter joint list according to model joints, maintaning the order of model joints
-        idxs = [
-            amp_motions.item()["joints_list"].index(joint_name)
-            for joint_name in model.joint_names()
-        ]
-
-        def multiply_quaternions(q1, q2):
-            w1, x1, y1, z1 = q1
-            w2, x2, y2, z2 = q2
-
-            w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-            x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-            y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
-            z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
-
-            return np.array([w, x, y, z])
-
-        import time
+        idxs = [amp_motions.item()["joints_list"].index(joint_name) for joint_name in model.joint_names()]
 
         if self.global_step > 32:
             self.global_step = 0
@@ -657,12 +602,6 @@ class ErgoCub(gym.Env):
             np.array(amp_motions.item()["joint_positions"])[self.global_step, idxs],
         )
 
-        # Rotate orientation by 180 degrees around z axis
-        base_quat = multiply_quaternions(base_quat, np.array([0, 0, 0, 1]))
-
-        # Scale robot height
-        base_pos = base_pos + np.array([0, 0, -0.0939719])
-
         return {
             "base_position": base_pos,
             "base_orientation": base_quat,
@@ -671,16 +610,11 @@ class ErgoCub(gym.Env):
 
     def apply_motions(self):
         # Load motions from .npy file
-        amp_motions = np.load(
-            Path(__file__).parent / "icub_backflip.npy", allow_pickle=True
-        )
+        amp_motions = np.load(Path(__file__).parent / "icub_backflip.npy", allow_pickle=True)
         model = self.simulator.get_model("ergoCub").mutable(validate=True)
 
         # Filter joint list according to model joints, maintaning the order of model joints
-        idxs = [
-            amp_motions.item()["joints_list"].index(joint_name)
-            for joint_name in model.joint_names()
-        ]
+        idxs = [amp_motions.item()["joints_list"].index(joint_name) for joint_name in model.joint_names()]
         self.render()
 
         def multiply_quaternions(q1, q2):
@@ -701,13 +635,10 @@ class ErgoCub(gym.Env):
             np.array(amp_motions.item()["root_quaternion"]),
             np.array(amp_motions.item()["joint_positions"])[:, idxs],
         ):
-            base_quat = multiply_quaternions(base_quat, np.array([0, 0, 0, 1]))
             with self.simulator.editable() as sim:
                 model = sim.get_model(model_name="ergoCub").mutable(validate=True)
                 model.reset_base_orientation(orientation=base_quat)
-                model.reset_base_position(
-                    position=base_pos + np.array([0, 0, -0.07712])
-                )
+                model.reset_base_position(position=base_pos)
                 model.reset_joint_positions(positions=joint_pos)
             self.simulator = sim
             self.render()

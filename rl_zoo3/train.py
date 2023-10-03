@@ -174,7 +174,7 @@ def train() -> None:
     uuid_str = f"_{uuid.uuid4()}" if args.uuid else ""
     if args.seed < 0:
         # Seed but with a random one
-        args.seed = np.random.randint(2**32 - 1, dtype="int64").item()  # type: ignore[attr-defined]
+        args.seed = np.random.randint(2 ** 32 - 1, dtype="int64").item()  # type: ignore[attr-defined]
 
     set_random_seed(args.seed)
 

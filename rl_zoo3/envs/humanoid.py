@@ -220,13 +220,7 @@ class Stickbot(gym.Env):
         steps_per_run = 1
 
         # Load model from urdf
-        self.model_urdf_path = (
-            pathlib.Path.home()
-            / "element_rl-for-codesign"
-            / "assets"
-            / "model"
-            / "Stickbot.urdf"
-        )
+        self.model_urdf_path = pathlib.Path.home() / "element_rl-for-codesign" / "assets" / "model" / "Stickbot.urdf"
         assert self.model_urdf_path.exists()
 
         # Create the JAXsim simulator
@@ -241,9 +235,7 @@ class Stickbot(gym.Env):
         ).mutable(validate=False)
 
         # Insert model into the simulator
-        model = self.simulator.insert_model_from_description(
-            model_description=self.model_urdf_path
-        ).mutable(validate=True)
+        model = self.simulator.insert_model_from_description(model_description=self.model_urdf_path).mutable(validate=True)
 
         model.reduce(
             considered_joints=[
@@ -272,9 +264,7 @@ class Stickbot(gym.Env):
                 "torso_yaw",
             ]
         )
-        self.observation_space = Box(
-            low=-np.inf, high=np.inf, shape=(83,), dtype=np.float64
-        )
+        self.observation_space = Box(low=-np.inf, high=np.inf, shape=(83,), dtype=np.float64)
         self.action_space = Box(low=-1.0, high=1.0, shape=(23,), dtype=np.float64)
 
         self.forward_reward_weight = forward_reward_weight
@@ -286,14 +276,9 @@ class Stickbot(gym.Env):
         self._integration_time = 0.02
         self.start_position_found = False
         self.healthy_steps = 0
-        self.joint_limits = [
-            model.get_joint(j).joint_description.position_limit
-            for j in model.joint_names()
-        ]
+        self.joint_limits = [model.get_joint(j).joint_description.position_limit for j in model.joint_names()]
 
-        def env_step(
-            sim: jaxsim.JaxSim, sim_data: SimulatorData, action: np.ndarray
-        ) -> jaxsim.JaxSim:
+        def env_step(sim: jaxsim.JaxSim, sim_data: SimulatorData, action: np.ndarray) -> jaxsim.JaxSim:
             """"""
 
             with sim.editable(validate=True) as sim_rw:
@@ -305,9 +290,7 @@ class Stickbot(gym.Env):
 
                 # Apply forces to model
                 model.zero_input()
-                model.set_joint_generalized_force_targets(
-                    forces=jnp.atleast_1d(action), joint_names=model.joint_names()
-                )
+                model.set_joint_generalized_force_targets(forces=jnp.atleast_1d(action), joint_names=model.joint_names())
 
                 sim_rw = sim_rw.step_over_horizon(
                     horizon_steps=int(self._integration_time / self._step_size),
@@ -317,9 +300,7 @@ class Stickbot(gym.Env):
                 return sim_rw
 
         self.env_step = jax.jit(env_step)
-        self.contact_points = jax.jit(
-            lambda model: jnp.count_nonzero(model.in_contact())
-        )
+        self.contact_points = jax.jit(lambda model: jnp.count_nonzero(model.in_contact()))
         self.feet_orientation = jax.jit(
             lambda model: (
                 model.links()[11].orientation(dcm=True),
@@ -371,9 +352,7 @@ class Stickbot(gym.Env):
             )
         )
 
-        target_distance_reward = np.exp(
-            -0.2 * np.linalg.norm(model.base_position() - self.target_position)
-        )
+        target_distance_reward = np.exp(-0.2 * np.linalg.norm(model.base_position() - self.target_position))
 
         contact_reward = 0.05 if int(self.contact_points(model)) > 0 else -0.05
 
@@ -384,17 +363,12 @@ class Stickbot(gym.Env):
         delta_gravity_angle = (
             gravity_projection
             @ np.array([0.0, 0.0, -1.0])
-            / (
-                np.linalg.norm(gravity_projection)
-                * np.linalg.norm(np.array([0.0, 0.0, -1.0]))
-            )
+            / (np.linalg.norm(gravity_projection) * np.linalg.norm(np.array([0.0, 0.0, -1.0])))
         )
 
         balancing_reward = 0.1 * delta_gravity_angle
 
-        height_reward = (
-            np.exp(model.base_position()[2] - self.starting_base_position[2]) ** 2
-        )
+        height_reward = np.exp(model.base_position()[2] - self.starting_base_position[2]) ** 2
 
         if self.is_healthy:
             self.healthy_steps += 1
@@ -407,12 +381,8 @@ class Stickbot(gym.Env):
         #     else -self.healthy_reward * self.healthy_steps
         # )
 
-        l_foot_placement_reward = 0.1 * np.exp(
-            -np.linalg.norm(self.feet_orientation(model)[0][2, 2] - 1.0)
-        )
-        r_foot_placement_reward = 0.1 * np.exp(
-            -np.linalg.norm(self.feet_orientation(model)[1][2, 2] - 1.0)
-        )
+        l_foot_placement_reward = 0.1 * np.exp(-np.linalg.norm(self.feet_orientation(model)[0][2, 2] - 1.0))
+        r_foot_placement_reward = 0.1 * np.exp(-np.linalg.norm(self.feet_orientation(model)[1][2, 2] - 1.0))
 
         reward = float(
             forward_reward
@@ -467,16 +437,12 @@ class Stickbot(gym.Env):
             self.starting_base_position = self._find_start_position()
             logging.warning(f"Initialization completed in {time.time() - now} seconds.")
 
-            self.target_position = self.starting_base_position + jnp.array(
-                [10.0, 0.0, 0.0]
-            )
+            self.target_position = self.starting_base_position + jnp.array([10.0, 0.0, 0.0])
 
         model = self.simulator.get_model("stickBot").mutable(validate=True)
 
         # Reset the base position of the new model to match the saved starting position
-        model.reset_base_position(
-            position=self.starting_base_position + jnp.array([0.0, 0.0, 0.008])
-        )
+        model.reset_base_position(position=self.starting_base_position + jnp.array([0.0, 0.0, 0.008]))
 
         # Reset base and joints
         model.reset_base_orientation(orientation=jnp.array([1.0, 0.0, 0.0, 0.0]))
@@ -537,13 +503,7 @@ class Stickbot(gym.Env):
             from rod.builder.primitives import SphereBuilder
 
             # Insert target point
-            target_sdf = (
-                pathlib.Path.home()
-                / "element_rl-for-codesign"
-                / "assets"
-                / "model"
-                / "Sphere.urdf"
-            )
+            target_sdf = pathlib.Path.home() / "element_rl-for-codesign" / "assets" / "model" / "Sphere.urdf"
 
             _ = self.world.insert_model(
                 model_description=target_sdf,
@@ -554,9 +514,7 @@ class Stickbot(gym.Env):
                 base_position=self.target_position,
             )
 
-        model = self.simulator.get_model(model_name="stickBot").mutable(
-            mutable=False, validate=True
-        )
+        model = self.simulator.get_model(model_name="stickBot").mutable(mutable=False, validate=True)
 
         try:
             # Update the model
@@ -629,9 +587,7 @@ class Stickbot(gym.Env):
         mdlLoader.loadModelFromFile(str(self.model_urdf_path))
         dynComp.loadRobotModel(mdlLoader.model())
 
-        root_H_sole = (
-            dynComp.getRelativeTransform("root_link", "l_sole").getPosition().toNumPy()
-        )
+        root_H_sole = dynComp.getRelativeTransform("root_link", "l_sole").getPosition().toNumPy()
 
         start_position = jnp.array([0.0, 0.0, -1.0 * root_H_sole[2]])
         self.start_position_found = True

@@ -255,3 +255,11 @@ class RewardComponentsCallback(BaseCallback):
                     self.logger.record(f"reward_components/{key}", value)
 
         return True
+
+
+class RenderVecEnv(BaseCallback):
+    def _on_step(self) -> bool:
+        # Renders one of the environments in the VecEnv
+        self.model.env.envs[0].render()
+
+        return True

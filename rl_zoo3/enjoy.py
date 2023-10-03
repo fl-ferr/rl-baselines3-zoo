@@ -225,8 +225,8 @@ def enjoy() -> None:  # noqa: C901
 
             episode_start = done
 
-            if not args.no_render:
-                env.render("human")
+            # if not args.no_render:
+            #     env.render()
 
             episode_reward += reward[0]
             ep_len += 1
