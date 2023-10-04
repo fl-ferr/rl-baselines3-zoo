@@ -332,11 +332,11 @@ class ErgoCub(gym.Env):
 
             self.observation = observation
 
-            terminated = self.terminated
-
             info = {}
         else:
             info = {"has_NaNs": True}
+
+        terminated = self.terminated
 
         self.global_step += 1
 

@@ -539,7 +539,7 @@ Stickbot:
 ErgoCub:
   batch_size: 128
   ent_coef: 0.0018156842230363426
-  n_envs: 45
+  n_envs: 126
   clip_range: 0.1
   gae_lambda: 0.9
   gamma: 0.999
