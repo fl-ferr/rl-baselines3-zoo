@@ -2,7 +2,8 @@ import logging
 import os
 import warnings
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple, Union
+from typing import Dict, Tuple, Union
+import idyntree.bindings as iDynTree
 
 import gymnasium as gym
 import jax
@@ -12,7 +13,7 @@ import jaxsim
 import jaxsim.typing as jtp
 import numpy as np
 from gymnasium.spaces import Box
-from jaxsim import high_level, logging
+from jaxsim import logging
 from jaxsim.high_level.model import IntegratorType, Model, VelRepr
 from jaxsim.physics.algos.soft_contacts import SoftContactsParams
 from jaxsim.simulation import simulator_callbacks
@@ -189,7 +190,7 @@ class ErgoCub(gym.Env):
         terminate_when_unhealthy=True,
         healthy_z_range: Union[float, float] = [0.4, 4.0],
     ):
-        super(ErgoCub, self).__init__()
+        super().__init__()
         self._step_size = 0.000_5
         steps_per_run = 1
 
@@ -248,9 +249,11 @@ class ErgoCub(gym.Env):
         self.render_mode = render_mode
         self._terminate_when_unhealthy = terminate_when_unhealthy
         self._healthy_z_range = healthy_z_range
-        self._integration_time = 1 / 30
+        self._integration_time = 0.0333  # 30Hz
         self.start_position_found = False
-        self.step_data = []
+        self.step_data = None
+        self.world = None
+        self.prior = None
         self.kp = 324.0
         self.kd = np.sqrt(self.kp) / 22.0
 
@@ -259,6 +262,10 @@ class ErgoCub(gym.Env):
 
             @jdc.pytree_dataclass
             class PostStepLogger(simulator_callbacks.PostStepCallback):
+                """
+                A post-step callback that logs the data after each step.
+                """
+
                 def post_step(self, sim: JaxSim, step_data: Dict[str, StepData]) -> Tuple[JaxSim, jtp.PyTree]:
                     return sim, step_data
 
@@ -362,7 +369,7 @@ class ErgoCub(gym.Env):
             info (dict): Additional information about the reset process.
 
         """
-        seed = 0 if seed == None else seed
+        seed = 0 if seed is None else seed
         super().reset(seed=seed)
 
         key = jax.random.PRNGKey(seed)
@@ -408,7 +415,6 @@ class ErgoCub(gym.Env):
         Returns:
             None
         """
-        pass
 
     def render(self) -> None:
         """
@@ -423,7 +429,7 @@ class ErgoCub(gym.Env):
         Note:
         - The rendering functionality is enabled if the `render_mode` is set to "human".
         """
-        if not hasattr(self, "world"):
+        if self.world is None:
             self.world = MeshcatWorld()
             self.world.open()
 
@@ -472,7 +478,7 @@ class ErgoCub(gym.Env):
 
         # balancing_reward = self._get_balancing_reward(model)
 
-        healthy_reward = self.healthy_reward_weight * self.is_healthy
+        healthy_reward = self.healthy_reward_weight if self.is_healthy else -20.0
 
         prior_reward = self.prior_reward_weight * self._get_prior_reward(model)
 
@@ -486,11 +492,14 @@ class ErgoCub(gym.Env):
         return 1.0 * np.linalg.norm(gravity_projection - np.array([0.0, 0.0, -1.0]))
 
     def _get_prior_reward(self, model: Model) -> float:
+        self.prior = self._get_prior() if self.prior is None else self.prior
         return np.exp(
             -(
-                np.linalg.norm(model.joint_positions() - self._get_prior["joint_positions"])
-                + np.linalg.norm(model.base_orientation() - self._get_prior["base_orientation"])
-                + np.linalg.norm(model.base_position() - self._get_prior["base_position"])
+                np.linalg.norm(model.joint_positions() - self.prior["joint_positions"])
+                + np.linalg.norm(model.base_orientation() - self.prior["base_orientation"])
+                + np.linalg.norm(model.base_position() - self.prior["base_position"])
+                # + np.linalg.norm(model.get_link("l_anke_2").position() - self.prior["l_ankle_2"])
+                # + np.linalg.norm(model.get_link("r_anke_2").position() - self.prior["r_ankle_2"])
             ).sum()
         )
 
@@ -548,7 +557,6 @@ class ErgoCub(gym.Env):
         Note:
             - This method uses the iDynTree library to compute the initial position.
         """
-        import idyntree.bindings as iDynTree
 
         dynComp = iDynTree.KinDynComputations()
         mdlLoader = iDynTree.ModelLoader()
@@ -583,7 +591,6 @@ class ErgoCub(gym.Env):
             logging.warning("NaNs found in observation!")
         return found
 
-    @property
     def _get_prior(self):
         # Load motions from .npy file
         amp_motions = np.load(Path(__file__).parent / "ergocub_motions.npy", allow_pickle=True)
@@ -598,16 +605,20 @@ class ErgoCub(gym.Env):
             self.reset()
             print("Resetting")
 
-        base_pos, base_quat, joint_pos = (
+        base_pos, base_quat, joint_pos, l_sole, r_sole = (
             np.array(amp_motions.item()["root_position"][self.global_step]),
             np.array(amp_motions.item()["root_quaternion"][self.global_step]),
             np.array(amp_motions.item()["joint_positions"])[self.global_step, idxs],
+            np.array(amp_motions.item()["l_sole"])[self.global_step],
+            np.array(amp_motions.item()["r_sole"])[self.global_step],
         )
 
-        return {
+        self.prior = {
             "base_position": base_pos,
             "base_orientation": base_quat,
             "joint_positions": joint_pos,
+            "l_sole": l_sole,
+            "r_sole": r_sole,
         }
 
     def apply_motions(self):
@@ -618,17 +629,6 @@ class ErgoCub(gym.Env):
         # Filter joint list according to model joints, maintaning the order of model joints
         idxs = [amp_motions.item()["joints_list"].index(joint_name) for joint_name in model.joint_names()]
         self.render()
-
-        def multiply_quaternions(q1, q2):
-            w1, x1, y1, z1 = q1
-            w2, x2, y2, z2 = q2
-
-            w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-            x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-            y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
-            z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
-
-            return np.array([w, x, y, z])
 
         import time
 
