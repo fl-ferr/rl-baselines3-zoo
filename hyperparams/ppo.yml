@@ -544,7 +544,7 @@ ErgoCub:
   gae_lambda: 0.9
   gamma: 0.999
   vf_coef: 0.662089808953894
-  learning_rate: !!float 1e-6
+  learning_rate: !!float 1e-4
   max_grad_norm: 0.8
   n_epochs: 5
   sde_sample_freq: -1
@@ -556,9 +556,9 @@ ErgoCub:
                     net_arch=dict(pi=[512, 256, 128], vf=[512, 256]),
                     log_std_init=-1.3444746885504595,
                     ortho_init=True,
+                    optimizer_class=th.optim.AdamW,
                   )" 
   target_kl: 0.03
-  # callback: rl_zoo3.callbacks.RewardComponentsCallback
   n_timesteps: !!float 5e6
   use_sde: True 
 
