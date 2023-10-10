@@ -65,12 +65,19 @@ try:
 except ImportError:
     ergocub = None
 
+try:
+    from envs import cartpolejax
+except ImportError:
+    cartpolejax = None
 
 if humanoid is not None:
     register(id=f"Stickbot", entry_point="envs.humanoid:Stickbot")
 
-if humanoid is not None:
+if ergocub is not None:
     register(id=f"ErgoCub", entry_point="envs.ergocub:ErgoCub")
+
+if cartpolejax is not None:
+    register(id=f"JaxPole", entry_point="envs.cartpolejax:JaxPole")
 
 
 # Register no vel envs
