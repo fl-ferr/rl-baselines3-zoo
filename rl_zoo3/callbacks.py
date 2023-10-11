@@ -258,8 +258,12 @@ class RewardComponentsCallback(BaseCallback):
 
 
 class RenderVecEnv(BaseCallback):
-    def _on_step(self) -> bool:
-        # Renders one of the environments in the VecEnv
-        self.model.env.envs[0].render()
+    def __init__(self, verbose=2):
+        super().__init__(verbose)
 
+    def _on_training_start(self) -> bool:
+        self.model.env.env_method("toggle_render", indices=0)
+        return True
+
+    def _on_step(self) -> bool:
         return True
