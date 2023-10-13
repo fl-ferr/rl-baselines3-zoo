@@ -261,7 +261,7 @@ class ErgoCub(gym.Env):
         self.render_mode = render_mode
         self._terminate_when_unhealthy = terminate_when_unhealthy
         self._healthy_z_range = healthy_z_range
-        self._integration_time = 0.0333  # 30Hz
+        self._integration_time = 0.01666  # 60Hz
         self.start_position_found = False
         self.step_data = None
         self.world = None

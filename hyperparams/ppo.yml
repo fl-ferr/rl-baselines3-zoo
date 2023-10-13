@@ -537,7 +537,7 @@ Stickbot:
   use_sde: False 
 
 ErgoCub:
-  batch_size: 128
+  batch_size: 256
   ent_coef: 0.0018156842230363426
   n_envs: 126
   clip_range: 0.2
@@ -560,7 +560,7 @@ ErgoCub:
   target_kl: 0.003
   n_timesteps: !!float 5e6
   use_sde: False 
-  env_wrapper: "rl_zoo3.wrappers.ActionSmoothingWrapper"
+  # env_wrapper: "rl_zoo3.wrappers.ActionSmoothingWrapper"
   callback: "rl_zoo3.callbacks.RewardComponentsCallback"
 
 
