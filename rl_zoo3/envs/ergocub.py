@@ -14,7 +14,7 @@ import jaxsim.typing as jtp
 from jaxsim.utils import Mutability
 import numpy as np
 from gymnasium.spaces import Box
-from jaxsim import logging
+from jaxsim import logging, sixd
 from jaxsim.high_level.model import Model, VelRepr
 from jaxsim.physics.algos.soft_contacts import SoftContactsParams
 from jaxsim.simulation import simulator_callbacks
@@ -204,6 +204,8 @@ class ErgoCub(gym.Env):
         )
         assert self.model_urdf_path.exists()
 
+        # jax.profiler.device_memory_profile()
+
         # Create the JAXsim simulator
         self.simulator = JaxSim.build(
             step_size=self._step_size,
@@ -345,7 +347,7 @@ class ErgoCub(gym.Env):
         #     if not self._has_NaNs
         #     else np.zeros_like(model.joint_names())
         # )
-        action = copy.copy(action) * 80.0
+        action = action * 80.0
 
         self.simulator, step_data = self.env_step(
             sim=self.simulator,
@@ -353,12 +355,12 @@ class ErgoCub(gym.Env):
             action=jnp.array(action, dtype=float),
         )
 
-        reward = self._get_reward(action=action, step_data=step_data)
+        reward, reward_info = self._get_reward(action=action, step_data=step_data)
 
         observation = self._get_observation()
 
         if not self._has_NaNs:
-            self.step_data = step_data
+            # self.step_data = step_data #! Slow
 
             self.observation = observation
 
@@ -370,6 +372,8 @@ class ErgoCub(gym.Env):
         self.global_step += 1
 
         done = False
+
+        info = info | reward_info
 
         if self.render_mode == "human":
             self.render()
@@ -416,7 +420,7 @@ class ErgoCub(gym.Env):
 
         self.global_step = 0
 
-        self.x = self.CoM(model)[0]
+        # self.x = self.CoM(model)[0]
         # self.x = model.base_position()[0]
 
         self.target_configuration = model.joint_positions()
@@ -505,15 +509,28 @@ class ErgoCub(gym.Env):
 
         # balancing_reward = self._get_balancing_reward(model)
 
-        healthy_reward = self.healthy_reward_weight if self.is_healthy else 0.0
+        # healthy_reward = self.healthy_reward_weight if self.is_healthy else 0.0
 
-        prior_reward = self.prior_reward_weight * self._get_prior_reward(model)
+        prior_position, prior_orientation, prior_joints = self._get_prior_reward(model)
 
-        print(
-            f"Healthy: {healthy_reward} | Prior: {prior_reward} | Control: {-control_penalty}"
+        prior_reward = self.prior_reward_weight * (
+            prior_position + prior_orientation + prior_joints
         )
 
-        return float(prior_reward + healthy_reward) if not self._has_NaNs else -10.0
+        info = {
+            "reward_components": {
+                # "healthy_reward": healthy_reward,
+                "prior_position": prior_position,
+                "prior_orientation": prior_orientation,
+                "prior_joints": prior_joints,
+                "prior_reward": prior_reward,
+                "control_penalty": -control_penalty,
+            }
+        }
+
+        reward = float(prior_reward - control_penalty) if not self._has_NaNs else -10.0
+
+        return reward, info
 
     def _get_balancing_reward(self, model: Model) -> float:
         gravity_projection = model.base_orientation(dcm=True).T @ (
@@ -524,22 +541,27 @@ class ErgoCub(gym.Env):
 
     def _get_prior_reward(self, model: Model) -> float:
         self.prior = self._get_prior() if self.prior is None else self.prior
-        return np.exp(
-            -(
-                1.0
-                * np.square(
-                    model.joint_positions() - self.prior["joint_positions"]
-                ).mean()
-                + 1.0
-                * np.square(
-                    model.base_orientation() - self.prior["base_orientation"]
-                ).mean()
-                + 0.5
-                * np.square(model.base_position() - self.prior["base_position"]).mean()
-                # + np.linalg.norm(model.get_link("l_anke_2").position() - self.prior["l_ankle_2"])
-                # + np.linalg.norm(model.get_link("r_anke_2").position() - self.prior["r_ankle_2"])
-            ).sum()
+
+        prior_quaternion = sixd.so3.SO3.from_quaternion_xyzw(
+            self.prior["base_orientation"][np.array([1, 2, 3, 0])]
+        ).as_matrix()
+
+        joints_reward = 1.0 * np.exp(
+            -np.linalg.norm(model.joint_positions() - self.prior["joint_positions"])
         )
+
+        orientation_reward = 1.0 * np.exp(
+            -np.linalg.norm(
+                np.eye(3) - model.base_orientation(dcm=True).T @ prior_quaternion
+            )
+        )
+        position_reward = 0.5 * np.exp(
+            -np.linalg.norm(model.base_position() - self.prior["base_position"])
+        )
+        # + np.linalg.norm(model.get_link("l_anke_2").position() - self.prior["l_ankle_2"])
+        # + np.linalg.norm(model.get_link("r_anke_2").position() - self.prior["r_ankle_2"])
+
+        return (position_reward, orientation_reward, joints_reward)
 
     def _get_observation(self, reset: bool = False) -> np.array:
         """
@@ -554,7 +576,8 @@ class ErgoCub(gym.Env):
         """
         model = self.simulator.get_model(model_name="ergoCub").mutable(validate=True)
         # base_height = np.atleast_1d(model.base_position()[2])
-        com_position = np.array(self.CoM(model))
+        base_position = np.array(model.base_position())
+        # com_position = np.array(self.CoM(model))
         base_orientation = np.array(model.base_orientation())
         # w_x_velocity = (model.base_position()[0, None] - self.x) / self._integration_time
         # base_yz_velocity = model.base_velocity()[1:]
@@ -566,7 +589,7 @@ class ErgoCub(gym.Env):
 
         actuator_forces = model.data.model_input.tau
 
-        self.x = model.base_position()[0]
+        # self.x = model.base_position()[0]
 
         # contact_forces = np.concatenate(
         #     [self.contact_force(foot, self.step_data, model) if not reset else [0, 0, 0] for foot in ("l", "r")]
@@ -574,7 +597,8 @@ class ErgoCub(gym.Env):
 
         return np.concatenate(
             (
-                com_position,
+                base_position,
+                # com_position,
                 base_orientation,
                 # w_x_velocity,
                 position,

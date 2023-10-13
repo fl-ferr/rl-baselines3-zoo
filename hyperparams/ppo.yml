@@ -540,27 +540,28 @@ ErgoCub:
   batch_size: 128
   ent_coef: 0.0018156842230363426
   n_envs: 126
-  clip_range: 0.1
+  clip_range: 0.2
   gae_lambda: 0.9
-  gamma: 0.999
+  gamma: 0.99
   vf_coef: 0.662089808953894
-  learning_rate: !!float 1e-4
+  learning_rate: !!float 0.000_3
   max_grad_norm: 0.8
-  n_epochs: 5
-  sde_sample_freq: -1
+  n_epochs: 32
   n_steps: 32
   normalize_advantage: True
   policy: "MlpPolicy"
   policy_kwargs: "dict(
                     activation_fn=nn.ReLU,
-                    net_arch=dict(pi=[512, 256, 128], vf=[512, 256]),
-                    log_std_init=-1.3444746885504595,
+                    net_arch=dict(pi=[1024, 512, 512, 128], vf=[1024, 512, 256]),
+                    log_std_init=np.log(0.2),
                     ortho_init=True,
                     optimizer_class=th.optim.AdamW,
                   )" 
-  target_kl: 0.03
+  target_kl: 0.003
   n_timesteps: !!float 5e6
-  use_sde: True 
+  use_sde: False 
+  env_wrapper: "rl_zoo3.wrappers.ActionSmoothingWrapper"
+  callback: "rl_zoo3.callbacks.RewardComponentsCallback"
 
 
 InvertedDoublePendulum-v2:
