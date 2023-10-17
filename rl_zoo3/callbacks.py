@@ -267,9 +267,7 @@ class RewardComponentsCallback(BaseCallback):
         super().__init__(verbose)
 
     def _on_step(self) -> bool:
-        if "reward_components" in self.locals["infos"][0]:
-            assert self.logger is not None
-
+        if "reward_components" in self.locals["infos"][0] and self.logger is not None:
             for key, value in self.locals["infos"][0]["reward_components"].items():
                 self.logger.record(f"reward_components/{key}", value)
 

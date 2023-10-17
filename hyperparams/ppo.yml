@@ -547,12 +547,12 @@ ErgoCub:
   learning_rate: !!float 0.000_3
   max_grad_norm: 0.8
   n_epochs: 32
-  n_steps: 32
+  n_steps: 1024
   normalize_advantage: True
   policy: "MlpPolicy"
   policy_kwargs: "dict(
                     activation_fn=nn.ReLU,
-                    net_arch=dict(pi=[1024, 512, 512, 128], vf=[1024, 512, 256]),
+                    net_arch=dict(pi=[512, 512, 128], vf=[512, 256]),
                     log_std_init=np.log(0.2),
                     ortho_init=True,
                     optimizer_class=th.optim.AdamW,
@@ -561,7 +561,7 @@ ErgoCub:
   n_timesteps: !!float 5e6
   use_sde: False 
   # env_wrapper: "rl_zoo3.wrappers.ActionSmoothingWrapper"
-  callback: "rl_zoo3.callbacks.RewardComponentsCallback"
+  # callback: "rl_zoo3.callbacks.RewardComponentsCallback"
 
 
 InvertedDoublePendulum-v2:
