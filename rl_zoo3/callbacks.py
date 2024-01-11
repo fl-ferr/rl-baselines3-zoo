@@ -274,7 +274,7 @@ class RewardComponentsCallback(BaseCallback):
         return True
 
 
-class RenderVecEnv(BaseCallback):
+class RenderVecEnvCallback(BaseCallback):
     def __init__(self, verbose=2):
         super().__init__(verbose)
 

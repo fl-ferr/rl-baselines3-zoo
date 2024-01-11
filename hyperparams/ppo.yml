@@ -537,31 +537,33 @@ Stickbot:
   use_sde: False 
 
 ErgoCub:
-  batch_size: 256
-  ent_coef: 0.0018156842230363426
-  n_envs: 126
+  batch_size: 1024
+  ent_coef: 0.000_1
+  n_envs: 1
   clip_range: 0.2
   gae_lambda: 0.9
   gamma: 0.99
-  vf_coef: 0.662089808953894
-  learning_rate: !!float 0.000_3
+  vf_coef: 0.662
+  learning_rate: !!float 0.001
   max_grad_norm: 0.8
-  n_epochs: 32
+  n_epochs: 64
   n_steps: 1024
   normalize_advantage: True
   policy: "MlpPolicy"
   policy_kwargs: "dict(
                     activation_fn=nn.ReLU,
-                    net_arch=dict(pi=[512, 512, 128], vf=[512, 256]),
-                    log_std_init=np.log(0.2),
+                    net_arch=dict(pi=[1024, 512, 128], vf=[1024, 512]),
                     ortho_init=True,
-                    optimizer_class=th.optim.AdamW,
+                    optimizer_class=th.optim.Adam,
                   )" 
   target_kl: 0.003
-  n_timesteps: !!float 5e6
-  use_sde: False 
+  n_timesteps: !!float 1e7
+  use_sde: true
+  sde_sample_freq: 8 
   # env_wrapper: "rl_zoo3.wrappers.ActionSmoothingWrapper"
-  # callback: "rl_zoo3.callbacks.RewardComponentsCallback"
+  callback: 
+    - "rl_zoo3.callbacks.RewardComponentsCallback"
+    # - "rl_zoo3.callbacks.RenderVecEnvCallback"
 
 
 InvertedDoublePendulum-v2:
@@ -630,7 +632,7 @@ Walker2d-v3:
 
 # Tuned
 JaxPole:
-  n_envs: 1
+  n_envs: 120
   n_timesteps: !!float 1e5
   policy: 'MlpPolicy'
   n_steps: 32
@@ -641,4 +643,3 @@ JaxPole:
   ent_coef: 0.0
   learning_rate: lin_0.001
   clip_range: lin_0.2
-

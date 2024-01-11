@@ -39,7 +39,7 @@ class JaxPole(gym.Env):
         healthy_reward_weight=2.0,
         ctrl_cost_weight=0.1,
         prior_reward_weight=5.0,
-        render_mode="human",
+        render_mode=None,
         terminate_when_unhealthy=True,
         healthy_z_range: Union[float, float] = [0.4, 4.0],
     ):
@@ -132,10 +132,10 @@ class JaxPole(gym.Env):
         model = self.simulator.get_model(model_name="cartpole").mutable(validate=True)
 
         # action = self.s_min + (action + 1) * 0.5 * (self.s_max - self.s_min)
-        print(f"Action unscaled: {action}")
+        # print(f"Action unscaled: {action}")
 
-        action = copy.copy(action) * 10.0
-        print(f"Action: {action}")
+        action = action * 10.0
+        # print(f"Action: {action}")
 
         # action = (
         #     np.clip(
@@ -279,7 +279,7 @@ class JaxPole(gym.Env):
 
     @property
     def is_healthy(self) -> bool:
-        theta_threshold_radians = 60 * 2 * np.pi / 360
+        theta_threshold_radians = 80 * 2 * np.pi / 360
         x_threshold = 2.4
         model = self.simulator.get_model("cartpole").mutable(validate=True)
         is_healthy = model.joint_positions()[0] < x_threshold and (
@@ -295,3 +295,7 @@ class JaxPole(gym.Env):
         if found:
             logging.warning("NaNs found in observation!")
         return found
+
+    def toggle_render(self):
+        self.render_mode = "human" if self.render_mode is None else None
+        return self.render_mode
